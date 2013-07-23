@@ -1,0 +1,24 @@
+{
+	"name" : "bread/event",
+	"description" : "Bread event library",
+	"type" : "library",
+	"authors" : [{
+			"name" : "Giovanni Lovato",
+			"email" : "heruan@aldu.net"
+		}
+	],
+	"keywords" : [
+		"event"
+	],
+	"license" : [
+		"CC-BY-3.0"
+	],
+	"require" : {
+		"php" : ">=5.4"
+	},
+	"autoload" : {
+		"psr-0" : {
+			"Bread\\Event" : "src"
+		}
+	}
+}
