@@ -12,9 +12,9 @@
  * @since      Bread PHP Framework
  * @license    http://creativecommons.org/licenses/by/3.0/
  */
-
 namespace Bread\Event;
 
-abstract class Emitter implements Interfaces\Emitter {
-  use Traits\Emitter;
+abstract class Emitter implements Interfaces\Emitter
+{
+    use Traits\Emitter;
 }

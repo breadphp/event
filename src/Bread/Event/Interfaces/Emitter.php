@@ -12,14 +12,20 @@
  * @since      Bread PHP Framework
  * @license    http://creativecommons.org/licenses/by/3.0/
  */
-
 namespace Bread\Event\Interfaces;
 
-interface Emitter {
-  public function on($event, callable $listener);
-  public function once($event, callable $listener);
-  public function removeListener($event, callable $listener);
-  public function removeAllListeners($event = null);
-  public function listeners($event);
-  public function emit($event, array $arguments = []);
+interface Emitter
+{
+
+    public function on($event, callable $listener);
+
+    public function once($event, callable $listener);
+
+    public function removeListener($event, callable $listener);
+
+    public function removeAllListeners($event = null);
+
+    public function listeners($event);
+
+    public function emit($event, array $arguments = []);
 }

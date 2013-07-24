@@ -12,19 +12,30 @@
  * @since      Bread PHP Framework
  * @license    http://creativecommons.org/licenses/by/3.0/
  */
-
 namespace Bread\Event\Interfaces;
 
-interface Loop {
-  public function addReadStream($stream, $listener);
-  public function addWriteStream($stream, $listener);
-  public function removeReadStream($stream);
-  public function removeWriteStream($stream);
-  public function removeStream($stream);
-  public function addTimer($interval, $callback);
-  public function addPeriodicTimer($interval, $callback);
-  public function cancelTimer($signature);
-  public function tick();
-  public function run();
-  public function stop();
+interface Loop
+{
+
+    public function addReadStream($stream, $listener);
+
+    public function addWriteStream($stream, $listener);
+
+    public function removeReadStream($stream);
+
+    public function removeWriteStream($stream);
+
+    public function removeStream($stream);
+
+    public function addTimer($interval, $callback);
+
+    public function addPeriodicTimer($interval, $callback);
+
+    public function cancelTimer($signature);
+
+    public function tick();
+
+    public function run();
+
+    public function stop();
 }
