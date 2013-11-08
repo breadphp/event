@@ -10,6 +10,7 @@
 	"keywords" : [
 		"event"
 	],
+	"homepage" : "https://github.com/breadphp/event",
 	"license" : [
 		"CC-BY-3.0"
 	],
