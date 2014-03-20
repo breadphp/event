@@ -124,7 +124,8 @@ class StreamSelect implements Event\Interfaces\Loop
             return;
         }
         
-        if (stream_select($read, $write, $except, 0, $this->getNextEventTimeInMicroSeconds()) > 0) {
+        // FIXME Suppressing stream_select warnings about data loss (is it true?)
+        if (@stream_select($read, $write, $except, 0, $this->getNextEventTimeInMicroSeconds()) > 0) {
             if ($read) {
                 foreach ($read as $stream) {
                     if (!isset($this->readListeners[(int) $stream])) {
