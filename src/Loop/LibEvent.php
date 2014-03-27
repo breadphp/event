@@ -19,7 +19,6 @@ use Bread\Event\Tick\FutureTickQueue;
 use Bread\Event\Tick\NextTickQueue;
 use Bread\Event\Timer;
 use Bread\Event\Interfaces\Timer as TimerInterface;
-use Event, EventBase;
 use SplObjectStorage;
 use Exception, InvalidArgumentException;
 
