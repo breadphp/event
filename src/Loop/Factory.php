@@ -19,11 +19,12 @@ class Factory
 
     public static function create()
     {
-        if (class_exists('libev\EventLoop')) {
-            return new LibEv();
-        }
         if (function_exists('event_base_new')) {
             return new LibEvent();
+        } elseif (class_exists('libev\EventLoop')) {
+            return new LibEv();
+        } elseif (class_exists('EventBase')) {
+            return new ExtEvent();
         }
         return new StreamSelect();
     }

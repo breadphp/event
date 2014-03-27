@@ -1,41 +1,21 @@
 <?php
-/**
- * Bread PHP Framework (http://github.com/saiv/Bread)
- * Copyright 2010-2012, SAIV Development Team <development@saiv.it>
- *
- * Licensed under a Creative Commons Attribution 3.0 Unported License.
- * Redistributions of files must retain the above copyright notice.
- *
- * @copyright  Copyright 2010-2012, SAIV Development Team <development@saiv.it>
- * @link       http://github.com/saiv/Bread Bread PHP Framework
- * @package    Bread
- * @since      Bread PHP Framework
- * @license    http://creativecommons.org/licenses/by/3.0/
- */
+
 namespace Bread\Event\Loop;
 
-use Bread\Event;
+use Bread\Event\Loop\Interfaces\Timer;
+use SplObjectStorage;
 use SplPriorityQueue;
-use InvalidArgumentException;
 
 class Timers
 {
-
-    const MIN_RESOLUTION = 0.001;
-
-    private $loop;
-
     private $time;
-
-    private $active;
-
     private $timers;
+    private $scheduler;
 
-    public function __construct(Event\Interfaces\Loop $loop)
+    public function __construct()
     {
-        $this->loop = $loop;
-        $this->active = array();
-        $this->timers = new SplPriorityQueue();
+        $this->timers = new SplObjectStorage();
+        $this->scheduler = new SplPriorityQueue();
     }
 
     public function updateTime()
@@ -45,62 +25,76 @@ class Timers
 
     public function getTime()
     {
-        return $this->time ?  : $this->updateTime();
+        return $this->time ?: $this->updateTime();
     }
 
-    public function add($interval, $callback, $periodic = false)
+    public function add(Timer $timer)
     {
-        if ($interval < self::MIN_RESOLUTION) {
-            throw new InvalidArgumentException('Timer events do not support sub-millisecond timeouts.');
-        }
-        if (!is_callable($callback)) {
-            throw new InvalidArgumentException('The callback must be a callable object.');
-        }
-        $interval = (float) $interval;
-        $timer = (object) array(
-            'interval' => $interval,
-            'callback' => $callback,
-            'periodic' => $periodic,
-            'scheduled' => $interval + $this->getTime()
-        );
-        $timer->signature = spl_object_hash($timer);
-        $this->timers->insert($timer, -$timer->scheduled);
-        $this->active[$timer->signature] = $timer;
-        return $timer->signature;
+        $interval = $timer->getInterval();
+        $scheduledAt = $interval + $this->getTime();
+
+        $this->timers->attach($timer, $scheduledAt);
+        $this->scheduler->insert($timer, -$scheduledAt);
     }
 
-    public function cancel($signature)
+    public function contains(Timer $timer)
     {
-        unset($this->active[$signature]);
+        return $this->timers->contains($timer);
+    }
+
+    public function cancel(Timer $timer)
+    {
+        $this->timers->detach($timer);
     }
 
     public function getFirst()
     {
-        if ($this->timers->isEmpty()) {
-            return null;
+        while ($this->scheduler->count()) {
+            $timer = $this->scheduler->top();
+
+            if ($this->timers->contains($timer)) {
+                return $this->timers[$timer];
+            }
+
+            $this->scheduler->extract();
         }
-        return $this->timers->top()->scheduled;
+
+        return null;
     }
 
     public function isEmpty()
     {
-        return !$this->active;
+        return count($this->timers) === 0;
     }
 
     public function tick()
     {
         $time = $this->updateTime();
         $timers = $this->timers;
-        while (!$timers->isEmpty() && $timers->top()->scheduled < $time) {
-            $timer = $timers->extract();
-            if (isset($this->active[$timer->signature])) {
-                call_user_func($timer->callback, $timer->signature, $this->loop);
-                if ($timer->periodic === true) {
-                    $timer->scheduled = $timer->interval + $time;
-                    $timers->insert($timer, -$timer->scheduled);
-                } else {
-                    unset($this->active[$timer->signature]);
-                }
+        $scheduler = $this->scheduler;
+
+        while (!$scheduler->isEmpty()) {
+            $timer = $scheduler->top();
+
+            if (!isset($timers[$timer])) {
+                $scheduler->extract();
+                $timers->detach($timer);
+
+                continue;
+            }
+
+            if ($timers[$timer] >= $time) {
+                break;
+            }
+
+            $scheduler->extract();
+            call_user_func($timer->getCallback(), $timer);
+
+            if ($timer->isPeriodic() && isset($timers[$timer])) {
+                $timers[$timer] = $scheduledAt = $timer->getInterval() + $time;
+                $scheduler->insert($timer, -$scheduledAt);
+            } else {
+                $timers->detach($timer);
             }
         }
     }

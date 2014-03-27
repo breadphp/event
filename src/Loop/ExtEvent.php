@@ -1,32 +1,18 @@
 <?php
-/**
- * Bread PHP Framework (http://github.com/saiv/Bread)
- * Copyright 2010-2012, SAIV Development Team <development@saiv.it>
- *
- * Licensed under a Creative Commons Attribution 3.0 Unported License.
- * Redistributions of files must retain the above copyright notice.
- *
- * @copyright  Copyright 2010-2012, SAIV Development Team <development@saiv.it>
- * @link       http://github.com/saiv/Bread Bread PHP Framework
- * @package    Bread
- * @since      Bread PHP Framework
- * @license    http://creativecommons.org/licenses/by/3.0/
- */
+
 namespace Bread\Event\Loop;
 
-use Bread\Event;
-use Bread\Event\Tick\FutureTickQueue;
-use Bread\Event\Tick\NextTickQueue;
-use Bread\Event\Timer;
-use Bread\Event\Interfaces\Timer as TimerInterface;
-use Event, EventBase;
+use Event;
+use EventBase;
+use Bread\Event\Interfaces\Loop;
+use Bread\Event\Loop\Tick\FutureTickQueue;
+use Bread\Event\Loop\Tick\NextTickQueue;
+use Bread\Event\Loop\Timer;
+use Bread\Event\Loop\Interfaces\Timer as TimerInterface;
 use SplObjectStorage;
-use Exception, InvalidArgumentException;
 
-class LibEvent implements Event\Interfaces\Loop
+class ExtEvent implements Loop
 {
-    const MICROSECONDS_PER_SECOND = 1000000;
-
     private $eventBase;
     private $nextTickQueue;
     private $futureTickQueue;
@@ -41,7 +27,7 @@ class LibEvent implements Event\Interfaces\Loop
 
     public function __construct()
     {
-        $this->eventBase = event_base_new();
+        $this->eventBase = new EventBase();
         $this->nextTickQueue = new NextTickQueue($this);
         $this->futureTickQueue = new FutureTickQueue($this);
         $this->timerEvents = new SplObjectStorage();
@@ -56,7 +42,7 @@ class LibEvent implements Event\Interfaces\Loop
 
         if (!isset($this->readListeners[$key])) {
             $this->readListeners[$key] = $listener;
-            $this->subscribeStreamEvent($stream, EV_READ);
+            $this->subscribeStreamEvent($stream, Event::READ);
         }
     }
 
@@ -66,7 +52,7 @@ class LibEvent implements Event\Interfaces\Loop
 
         if (!isset($this->writeListeners[$key])) {
             $this->writeListeners[$key] = $listener;
-            $this->subscribeStreamEvent($stream, EV_WRITE);
+            $this->subscribeStreamEvent($stream, Event::WRITE);
         }
     }
 
@@ -76,7 +62,7 @@ class LibEvent implements Event\Interfaces\Loop
 
         if (isset($this->readListeners[$key])) {
             unset($this->readListeners[$key]);
-            $this->unsubscribeStreamEvent($stream, EV_READ);
+            $this->unsubscribeStreamEvent($stream, Event::READ);
         }
     }
 
@@ -86,7 +72,7 @@ class LibEvent implements Event\Interfaces\Loop
 
         if (isset($this->writeListeners[$key])) {
             unset($this->writeListeners[$key]);
-            $this->unsubscribeStreamEvent($stream, EV_WRITE);
+            $this->unsubscribeStreamEvent($stream, Event::WRITE);
         }
     }
 
@@ -95,10 +81,7 @@ class LibEvent implements Event\Interfaces\Loop
         $key = (int) $stream;
 
         if (isset($this->streamEvents[$key])) {
-            $event = $this->streamEvents[$key];
-
-            event_del($event);
-            event_free($event);
+            $this->streamEvents[$key]->free();
 
             unset(
                 $this->streamFlags[$key],
@@ -130,11 +113,7 @@ class LibEvent implements Event\Interfaces\Loop
     public function cancelTimer(TimerInterface $timer)
     {
         if ($this->isTimerActive($timer)) {
-            $event = $this->timerEvents[$timer];
-
-            event_del($event);
-            event_free($event);
-
+            $this->timerEvents[$timer]->free();
             $this->timerEvents->detach($timer);
         }
     }
@@ -160,7 +139,8 @@ class LibEvent implements Event\Interfaces\Loop
 
         $this->futureTickQueue->tick();
 
-        event_base_loop($this->eventBase, EVLOOP_ONCE | EVLOOP_NONBLOCK);
+        // @-suppression: https://github.com/reactphp/react/pull/234#discussion-diff-7759616R226
+        @$this->eventBase->loop(EventBase::LOOP_ONCE | EventBase::LOOP_NONBLOCK);
     }
 
     public function run()
@@ -172,14 +152,15 @@ class LibEvent implements Event\Interfaces\Loop
 
             $this->futureTickQueue->tick();
 
-            $flags = EVLOOP_ONCE;
+            $flags = EventBase::LOOP_ONCE;
             if (!$this->running || !$this->nextTickQueue->isEmpty() || !$this->futureTickQueue->isEmpty()) {
-                $flags |= EVLOOP_NONBLOCK;
+                $flags |= EventBase::LOOP_NONBLOCK;
             } elseif (!$this->streamEvents && !$this->timerEvents->count()) {
                 break;
             }
 
-            event_base_loop($this->eventBase, $flags);
+            // @-suppression: https://github.com/reactphp/react/pull/234#discussion-diff-7759616R226
+            @$this->eventBase->loop($flags);
         }
     }
 
@@ -195,18 +176,23 @@ class LibEvent implements Event\Interfaces\Loop
      */
     private function scheduleTimer(TimerInterface $timer)
     {
-        $this->timerEvents[$timer] = $event = event_timer_new();
+        $flags = Event::TIMEOUT;
 
-        event_timer_set($event, $this->timerCallback, $timer);
-        event_base_set($event, $this->eventBase);
-        event_add($event, $timer->getInterval() * self::MICROSECONDS_PER_SECOND);
+        if ($timer->isPeriodic()) {
+            $flags |= Event::PERSIST;
+        }
+
+        $event = new Event($this->eventBase, -1, $flags, $this->timerCallback, $timer);
+        $this->timerEvents[$timer] = $event;
+
+        $event->add($timer->getInterval());
     }
 
     /**
-     * Create a new ext-libevent event resource, or update the existing one.
+     * Create a new ext-event Event object, or update the existing one.
      *
      * @param stream  $stream
-     * @param integer $flag   EV_READ or EV_WRITE
+     * @param integer $flag   Event::READ or Event::WRITE
      */
     private function subscribeStreamEvent($stream, $flag)
     {
@@ -214,29 +200,26 @@ class LibEvent implements Event\Interfaces\Loop
 
         if (isset($this->streamEvents[$key])) {
             $event = $this->streamEvents[$key];
-            $flags = $this->streamFlags[$key] |= $flag;
+            $flags = ($this->streamFlags[$key] |= $flag);
 
-            event_del($event);
-            event_set($event, $stream, EV_PERSIST | $flags, $this->streamCallback);
+            $event->del();
+            $event->set($this->eventBase, $stream, Event::PERSIST | $flags, $this->streamCallback);
         } else {
-            $event = event_new();
-
-            event_set($event, $stream, EV_PERSIST | $flag, $this->streamCallback);
-            event_base_set($event, $this->eventBase);
+            $event = new Event($this->eventBase, $stream, Event::PERSIST | $flag, $this->streamCallback);
 
             $this->streamEvents[$key] = $event;
             $this->streamFlags[$key] = $flag;
         }
 
-        event_add($event);
+        $event->add();
     }
 
     /**
-     * Update the ext-libevent event resource for this stream to stop listening to
+     * Update the ext-event Event object for this stream to stop listening to
      * the given event type, or remove it entirely if it's no longer needed.
      *
      * @param stream  $stream
-     * @param integer $flag   EV_READ or EV_WRITE
+     * @param integer $flag   Event::READ or Event::WRITE
      */
     private function unsubscribeStreamEvent($stream, $flag)
     {
@@ -252,9 +235,9 @@ class LibEvent implements Event\Interfaces\Loop
 
         $event = $this->streamEvents[$key];
 
-        event_del($event);
-        event_set($event, $stream, EV_PERSIST | $flags, $this->streamCallback);
-        event_add($event);
+        $event->del();
+        $event->set($this->eventBase, $stream, Event::PERSIST | $flags, $this->streamCallback);
+        $event->add();
     }
 
     /**
@@ -269,19 +252,7 @@ class LibEvent implements Event\Interfaces\Loop
         $this->timerCallback = function ($_, $_, $timer) {
             call_user_func($timer->getCallback(), $timer);
 
-            // Timer already cancelled ...
-            if (!$this->isTimerActive($timer)) {
-                return;
-
-                // Reschedule periodic timers ...
-            } elseif ($timer->isPeriodic()) {
-                event_add(
-                    $this->timerEvents[$timer],
-                    $timer->getInterval() * self::MICROSECONDS_PER_SECOND
-                );
-
-                // Clean-up one shot timers ...
-            } else {
+            if (!$timer->isPeriodic() && $this->isTimerActive($timer)) {
                 $this->cancelTimer($timer);
             }
         };
@@ -299,14 +270,13 @@ class LibEvent implements Event\Interfaces\Loop
         $this->streamCallback = function ($stream, $flags) {
             $key = (int) $stream;
 
-            if (EV_READ === (EV_READ & $flags) && isset($this->readListeners[$key])) {
+            if (Event::READ === (Event::READ & $flags) && isset($this->readListeners[$key])) {
                 call_user_func($this->readListeners[$key], $stream, $this);
             }
 
-            if (EV_WRITE === (EV_WRITE & $flags) && isset($this->writeListeners[$key])) {
+            if (Event::WRITE === (Event::WRITE & $flags) && isset($this->writeListeners[$key])) {
                 call_user_func($this->writeListeners[$key], $stream, $this);
             }
         };
     }
-
 }

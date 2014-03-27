@@ -14,12 +14,14 @@
  */
 namespace Bread\Event\Interfaces;
 
+use Bread\Event\Loop\Interfaces\Timer;
+
 interface Loop
 {
 
-    public function addReadStream($stream, $listener);
+    public function addReadStream($stream, callable $listener);
 
-    public function addWriteStream($stream, $listener);
+    public function addWriteStream($stream, callable $listener);
 
     public function removeReadStream($stream);
 
@@ -27,11 +29,17 @@ interface Loop
 
     public function removeStream($stream);
 
-    public function addTimer($interval, $callback);
+    public function addTimer($interval, callable $callback);
 
-    public function addPeriodicTimer($interval, $callback);
+    public function addPeriodicTimer($interval, callable $callback);
 
-    public function cancelTimer($signature);
+    public function cancelTimer(Timer $timer);
+
+    public function isTimerActive(Timer $timer);
+
+    public function nextTick(callable $listener);
+
+    public function futureTick(callable $listener);
 
     public function tick();
 
