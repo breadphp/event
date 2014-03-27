@@ -15,10 +15,10 @@
 namespace Bread\Event\Loop;
 
 use Bread\Event;
-use Bread\Event\Tick\FutureTickQueue;
-use Bread\Event\Tick\NextTickQueue;
-use Bread\Event\Timer;
-use Bread\Event\Interfaces\Timer as TimerInterface;
+use Bread\Event\Loop\Tick\FutureTickQueue;
+use Bread\Event\Loop\Tick\NextTickQueue;
+use Bread\Event\Loop\Timer;
+use Bread\Event\Loop\Interfaces\Timer as TimerInterface;
 use SplObjectStorage;
 use Exception, InvalidArgumentException;
 
