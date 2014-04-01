@@ -14,58 +14,71 @@
  */
 namespace Bread\Event\Loop;
 
-use Bread\Event;
+use Bread\Event\Loop\Tick\FutureTickQueue;
+use Bread\Event\Loop\Tick\NextTickQueue;
+use Bread\Event\Loop\Timer;
+use Bread\Event\Loop\Interfaces\Timer as TimerInterface;
+use Bread\Event\Loop\Timers;
+use Bread\Event\Interfaces\Loop;
 
-class StreamSelect implements Event\Interfaces\Loop
+class StreamSelect implements Loop
 {
+    const MICROSECONDS_PER_SECOND = 1000000;
 
-    const QUANTUM_INTERVAL = 1000000;
-
-    protected $timers;
-
-    protected $running = false;
-
-    protected $readStreams = array();
-
-    protected $readListeners = array();
-
-    protected $writeStreams = array();
-
-    protected $writeListeners = array();
+    private $nextTickQueue;
+    private $futureTickQueue;
+    private $timers;
+    private $readStreams = [];
+    private $readListeners = [];
+    private $writeStreams = [];
+    private $writeListeners = [];
+    private $running;
 
     public function __construct()
     {
-        $this->timers = new Timers($this);
+        $this->nextTickQueue = new NextTickQueue($this);
+        $this->futureTickQueue = new FutureTickQueue($this);
+        $this->timers = new Timers();
     }
 
-    public function addReadStream($stream, $listener)
+    public function addReadStream($stream, callable $listener)
     {
-        $id = (int) $stream;
-        if (!isset($this->readStreams[$id])) {
-            $this->readStreams[$id] = $stream;
-            $this->readListeners[$id] = $listener;
+        $key = (int) $stream;
+
+        if (!isset($this->readStreams[$key])) {
+            $this->readStreams[$key] = $stream;
+            $this->readListeners[$key] = $listener;
         }
     }
 
-    public function addWriteStream($stream, $listener)
+    public function addWriteStream($stream, callable $listener)
     {
-        $id = (int) $stream;
-        if (!isset($this->writeStreams[$id])) {
-            $this->writeStreams[$id] = $stream;
-            $this->writeListeners[$id] = $listener;
+        $key = (int) $stream;
+
+        if (!isset($this->writeStreams[$key])) {
+            $this->writeStreams[$key] = $stream;
+            $this->writeListeners[$key] = $listener;
         }
     }
 
     public function removeReadStream($stream)
     {
-        $id = (int) $stream;
-        unset($this->readStreams[$id], $this->readListeners[$id]);
+        $key = (int) $stream;
+
+        unset(
+            $this->readStreams[$key],
+            $this->readListeners[$key]
+        );
     }
 
     public function removeWriteStream($stream)
     {
-        $id = (int) $stream;
-        unset($this->writeStreams[$id], $this->writeListeners[$id]);
+        $key = (int) $stream;
+
+        unset(
+            $this->writeStreams[$key],
+            $this->writeListeners[$key]
+        );
     }
 
     public function removeStream($stream)
@@ -74,95 +87,86 @@ class StreamSelect implements Event\Interfaces\Loop
         $this->removeWriteStream($stream);
     }
 
-    public function addTimer($interval, $callback)
+    public function addTimer($interval, callable $callback)
     {
-        return $this->timers->add($interval, $callback);
+        $timer = new Timer($this, $interval, $callback, false);
+
+        $this->timers->add($timer);
+
+        return $timer;
     }
 
-    public function addPeriodicTimer($interval, $callback)
+    public function addPeriodicTimer($interval, callable $callback)
     {
-        return $this->timers->add($interval, $callback, true);
+        $timer = new Timer($this, $interval, $callback, true);
+
+        $this->timers->add($timer);
+
+        return $timer;
     }
 
-    public function cancelTimer($signature)
+    public function cancelTimer(TimerInterface $timer)
     {
-        $this->timers->cancel($signature);
+        $this->timers->cancel($timer);
     }
 
-    protected function getNextEventTimeInMicroSeconds()
+    public function isTimerActive(TimerInterface $timer)
     {
-        $nextEvent = $this->timers->getFirst();
-        if (null === $nextEvent) {
-            return self::QUANTUM_INTERVAL;
-        }
-        $currentTime = microtime(true);
-        if ($nextEvent > $currentTime) {
-            return ($nextEvent - $currentTime) * 1000000;
-        }
-        return 0;
+        return $this->timers->contains($timer);
     }
 
-    protected function sleepOnPendingTimers()
+    public function nextTick(callable $listener)
     {
-        if ($this->timers->isEmpty()) {
-            $this->running = false;
-        } else {
-            // We use usleep() instead of stream_select() to emulate timeouts
-            // since the latter fails when there are no streams registered for
-            // read / write events. Blame PHP for us needing this hack.
-            usleep($this->getNextEventTimeInMicroSeconds());
-        }
+        $this->nextTickQueue->add($listener);
     }
 
-    protected function runStreamSelect()
+    public function futureTick(callable $listener)
     {
-        $read = $this->readStreams ?  : null;
-        $write = $this->writeStreams ?  : null;
-        $except = null;
-        if (!$read && !$write) {
-            $this->sleepOnPendingTimers();
-            return;
-        }
-        
-        // FIXME Suppressing stream_select warnings about data loss (is it true?)
-        if (@stream_select($read, $write, $except, 0, $this->getNextEventTimeInMicroSeconds()) > 0) {
-            if ($read) {
-                foreach ($read as $stream) {
-                    if (!isset($this->readListeners[(int) $stream])) {
-                        continue;
-                    }
-                    $listener = $this->readListeners[(int) $stream];
-                    if (call_user_func($listener, $stream, $this) === false) {
-                        $this->removeReadStream($stream);
-                    }
-                }
-            }
-            if ($write) {
-                foreach ($write as $stream) {
-                    if (!isset($this->writeListeners[(int) $stream])) {
-                        continue;
-                    }
-                    $listener = $this->writeListeners[(int) $stream];
-                    if (call_user_func($listener, $stream, $this) === false) {
-                        $this->removeWriteStream($stream);
-                    }
-                }
-            }
-        }
+        $this->futureTickQueue->add($listener);
     }
 
     public function tick()
     {
+        $this->nextTickQueue->tick();
+
+        $this->futureTickQueue->tick();
+
         $this->timers->tick();
-        $this->runStreamSelect();
-        return $this->running;
+
+        $this->waitForStreamActivity(0);
     }
 
     public function run()
     {
         $this->running = true;
-        while ($this->tick()) {
-            // NOOP
+
+        while ($this->running) {
+            $this->nextTickQueue->tick();
+
+            $this->futureTickQueue->tick();
+
+            $this->timers->tick();
+
+            // Next-tick or future-tick queues have pending callbacks ...
+            if (!$this->running || !$this->nextTickQueue->isEmpty() || !$this->futureTickQueue->isEmpty()) {
+                $timeout = 0;
+
+            // There is a pending timer, only block until it is due ...
+            } elseif ($scheduledAt = $this->timers->getFirst()) {
+                if (0 > $timeout = $scheduledAt - $this->timers->getTime()) {
+                    $timeout = 0;
+                }
+
+            // The only possible event is stream activity, so wait forever ...
+            } elseif ($this->readStreams || $this->writeStreams) {
+                $timeout = null;
+
+            // There's nothing left to do ...
+            } else {
+                break;
+            }
+
+            $this->waitForStreamActivity($timeout * self::MICROSECONDS_PER_SECOND);
         }
     }
 
@@ -170,4 +174,55 @@ class StreamSelect implements Event\Interfaces\Loop
     {
         $this->running = false;
     }
+
+    /**
+     * Wait/check for stream activity, or until the next timer is due.
+     */
+    private function waitForStreamActivity($timeout)
+    {
+        $read  = $this->readStreams;
+        $write = $this->writeStreams;
+
+        $this->streamSelect($read, $write, $timeout);
+
+        foreach ($read as $stream) {
+            $key = (int) $stream;
+
+            if (isset($this->readListeners[$key])) {
+                call_user_func($this->readListeners[$key], $stream, $this);
+            }
+        }
+
+        foreach ($write as $stream) {
+            $key = (int) $stream;
+
+            if (isset($this->writeListeners[$key])) {
+                call_user_func($this->writeListeners[$key], $stream, $this);
+            }
+        }
+    }
+
+    /**
+     * Emulate a stream_select() implementation that does not break when passed
+     * empty stream arrays.
+     *
+     * @param array        &$read   An array of read streams to select upon.
+     * @param array        &$write  An array of write streams to select upon.
+     * @param integer|null $timeout Activity timeout in microseconds, or null to wait forever.
+     *
+     * @return integer The total number of streams that are ready for read/write.
+     */
+    protected function streamSelect(array &$read, array &$write, $timeout)
+    {
+        if ($read || $write) {
+            $except = null;
+
+            return @stream_select($read, $write, $except, $timeout === null ? null : 0, $timeout);
+        }
+
+        usleep($timeout);
+
+        return 0;
+    }
 }
+
