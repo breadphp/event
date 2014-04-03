@@ -9,6 +9,7 @@ use Bread\Event\Loop\Tick\FutureTickQueue;
 use Bread\Event\Loop\Tick\NextTickQueue;
 use Bread\Event\Loop\Timer;
 use Bread\Event\Loop\Interfaces\Timer as TimerInterface;
+use Cron\CronExpression;
 use SplObjectStorage;
 
 class ExtEvent implements Loop
@@ -108,6 +109,19 @@ class ExtEvent implements Loop
         $this->scheduleTimer($timer);
 
         return $timer;
+    }
+
+    public function addCronjob($cronExpression, callable $callback)
+    {
+        $cron = CronExpression::factory($cronExpression);
+        $time = (int) $cron->getNextRunDate()->format('U');
+        $interval = $time - time();
+        return $this->addPeriodicTimer($interval, function ($timer) use ($cron, $callback) {
+            $time = (int) $cron->getNextRunDate()->format('U');
+            $interval = $time - time();
+            $timer->setInterval($interval);
+            return call_user_func($callback, $timer);
+        });
     }
 
     public function cancelTimer(TimerInterface $timer)

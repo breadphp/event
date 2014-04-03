@@ -14,15 +14,16 @@
  */
 namespace Bread\Event\Loop;
 
-use Bread\Event;
 use libev\EventLoop;
 use libev\IOEvent;
 use libev\TimerEvent;
+use Bread\Event;
 use Bread\Event\Loop\Tick\FutureTickQueue;
 use Bread\Event\Loop\Tick\NextTickQueue;
 use Braed\Event\Loop\Timer;
 use Bread\Event\Loop\Interfaces\Timer as TimerInterface;
 use Bread\Event\Interfaces\Loop;
+use Cron\CronExpression;
 use SplObjectStorage;
 
 /**
@@ -129,6 +130,19 @@ class LibEv implements Loop
         $this->loop->add($event);
 
         return $timer;
+    }
+
+    public function addCronjob($cronExpression, callable $callback)
+    {
+        $cron = CronExpression::factory($cronExpression);
+        $time = (int) $cron->getNextRunDate()->format('U');
+        $interval = $time - time();
+        return $this->addPeriodicTimer($interval, function ($timer) use ($cron, $callback) {
+            $time = (int) $cron->getNextRunDate()->format('U');
+            $interval = $time - time();
+            $timer->setInterval($interval);
+            return call_user_func($callback, $timer);
+        });
     }
 
     public function cancelTimer(TimerInterface $timer)

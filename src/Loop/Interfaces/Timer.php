@@ -5,6 +5,7 @@ namespace Bread\Event\Loop\Interfaces;
 interface Timer
 {
     public function getLoop();
+    public function setInterval($interval);
     public function getInterval();
     public function getCallback();
     public function setData($data);

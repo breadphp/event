@@ -20,6 +20,7 @@ use Bread\Event\Loop\Timer;
 use Bread\Event\Loop\Interfaces\Timer as TimerInterface;
 use Bread\Event\Loop\Timers;
 use Bread\Event\Interfaces\Loop;
+use Cron\CronExpression;
 
 class StreamSelect implements Loop
 {
@@ -103,6 +104,19 @@ class StreamSelect implements Loop
         $this->timers->add($timer);
 
         return $timer;
+    }
+
+    public function addCronjob($cronExpression, callable $callback)
+    {
+        $cron = CronExpression::factory($cronExpression);
+        $time = (int) $cron->getNextRunDate()->format('U');
+        $interval = $time - time();
+        return $this->addPeriodicTimer($interval, function ($timer) use ($cron, $callback) {
+            $time = (int) $cron->getNextRunDate()->format('U');
+            $interval = $time - time();
+            $timer->setInterval($interval);
+            return call_user_func($callback, $timer);
+        });
     }
 
     public function cancelTimer(TimerInterface $timer)

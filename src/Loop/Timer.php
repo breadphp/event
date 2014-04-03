@@ -33,6 +33,11 @@ class Timer implements Interfaces\Timer
         return $this->loop;
     }
 
+    public function setInterval($interval)
+    {
+        $this->interval = (float) $interval;
+    }
+
     public function getInterval()
     {
         return $this->interval;

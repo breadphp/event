@@ -33,6 +33,8 @@ interface Loop
 
     public function addPeriodicTimer($interval, callable $callback);
 
+    public function addCronjob($cronExpression, callable $callback);
+
     public function cancelTimer(Timer $timer);
 
     public function isTimerActive(Timer $timer);
